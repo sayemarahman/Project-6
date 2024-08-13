@@ -1,0 +1,266 @@
+---
+title: "Project 6"
+output: pdf_document
+date: "2024-04-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+1a)
+```{r}
+library(ISLR)
+library(tree)
+library(MASS)
+library(rpart)
+library(caret)
+library(randomForest)
+library(gbm)
+library(e1071)
+library(ISLR2)
+# load the data
+data("Hitters")
+# clean the data set
+Hitters <- na.omit(Hitters)
+Hitters$logSalary <- log(Hitters$Salary)
+tree = rpart(logSalary ~ ., data=Hitters)
+plot(tree)
+text(tree, pretty = 0)
+
+set.seed(123) # For reproducibility
+index <- createDataPartition(Hitters$logSalary, p = 0.8, list = FALSE)
+training_data <- Hitters[index, ]
+test_data <- Hitters[-index, ]
+
+# Fit tree 
+tree_fit <- tree(logSalary ~., data = training_data)
+print(tree_fit)
+
+# Predict on testing data
+predictions <- predict(tree_fit, test_data)
+
+# Calculating the MSE
+MSE_Test <- mean((test_data$logSalary - predictions)^2)
+print(MSE_Test)
+
+```
+1b)
+```{r}
+printcp(tree)
+
+prunedTree = prune(tree, cp = tree$cptable[which.min(tree$cptable[,"xerror"]), "CP"])
+prunedLoocv <- train(logSalary ~ ., data = Hitters, method = "rpart",
+                      trControl = trainControl(method = "LOOCV"),
+                      tuneGrid = expand.grid(.cp = tree$cptable[,"CP"]))
+prunedLoocv$results
+
+
+# Compare results
+print("Unpruned Tree Results:")
+print(tree$results)
+print("Pruned Tree Results:")
+print(prunedLoocv$results)
+
+# Report estimated test MSE for the best pruned tree
+best_cp <- prunedLoocv$results$cp[which.min(prunedLoocv$results$RMSE)]
+best_pruned_tree <- prune(tree, cp = best_cp)
+test_predictions <- predict(best_pruned_tree, newdata = test_data)
+test_mse <- mean((test_data$logSalary - test_predictions)^2)
+print(paste("Estimated Test MSE for Best Pruned Tree:", test_mse))
+
+# Identify important predictors
+important_predictors <- varImp(best_pruned_tree)
+print(important_predictors)
+```
+(c)
+```{r}
+model <- randomForest(logSalary ~ ., data = Hitters, mtry = ncol(Hitters)-1, ntree = 1000)
+
+predictions = predict(model, newdata = Hitters)
+bagging = mean((Hitters$logSalary - predictions)^2)
+print(paste("Test MSE for Model:", bagging))
+
+importance = importance(model)
+print(importance)
+
+```
+(d)
+```{r}
+random_forest = randomForest(logSalary ~ ., data = Hitters, method = "rf",
+                             ntree = 1000, trControl = trainControl(method = "LOOCV", 
+                                                                    number = 1), 
+                             tuneGrid = expand.grid(.mtry = floor(
+                               (ncol(Hitters) - 1) / 3)))
+
+loocv = train(logSalary ~ ., data = Hitters, method = "rf", ntree = 1000, 
+                 trControl = trainControl(method = "LOOCV", number = 1),
+                 tuneGrid = expand.grid(.mtry = floor((ncol(Hitters) - 1) / 3)))
+
+loocv$results$RMSE^2
+
+importance = importance(random_forest)
+
+print(importance)
+```
+(e)
+```{r}
+boosting_model = gbm(logSalary ~., data = Hitters, distribution = "gaussian", 
+                     n.trees = 1000, interaction.depth = 1, shrinkage = 0.01, 
+                     cv.folds = nrow(Hitters), n.cores = NULL)
+MSE = min(boosting_model$cv.error)
+print(MSE)
+
+summary = summary(boosting_model)
+print(summary)
+```
+
+
+Question 2
+```{r}
+library(e1071)
+library(caret)
+library(ggplot2)
+library(MASS)
+diabetes <- read.table("C:/Users/sayem/Downloads/diabetes.csv", sep=",", header = T)
+# renaming columns to get rid of .. at the end of each variable
+names(diabetes) <- c("Pregnancies", "Glucose", "BloodPressure", "SkinThickness",
+                     "Insulin", "BMI", "DiabetesPedigreeFunction", "Age", "Outcome")
+head(diabetes)
+X <- diabetes[, -9] # Features
+y <- diabetes$Outcome
+y <- factor(y, levels = c(0, 1))
+
+# 10-fold cross validation
+set.seed(123) # For reproducibility
+cv <- trainControl(method = "cv", number = 10)
+```
+```{r}
+#DONE
+# Step 4(a): Fit a support vector classifier to the data with cost parameter 
+# chosen optimally. Summarize key features of the fit. Compute its estimated 
+# test error rate.
+svm_linear <- train(
+  x = X,
+  y = y,
+  method = "svmLinear",
+  trControl = cv,
+  tuneGrid = expand.grid(C = seq(0.1, 10, by = 0.1))
+)
+optimal_cost <- svm_linear$bestTune$C
+# summarize key features
+summary(svm_linear$finalModel)
+# compute estimated test error rate
+test_error <- 1 - svm_linear$results$Accuracy
+estimated_test_error_rate <- mean(test_error)
+cat("Estimated Test Error Rate:", estimated_test_error_rate, "\n")
+
+```
+```{r}
+library(caret)
+library(e1071)
+
+# (b): Fit Support Vector Machine (SVM) with polynomial kernel and optimal cost parameter
+
+svm_model_poly <- train(
+  x = X,
+  y = y,
+  method = "svmPoly",
+  trControl = cv,
+  tuneGrid = expand.grid(degree = 1:3, scale = c(0.1, 1, 10), C = seq(0.1, 10, by = 0.1))
+)
+
+# Optimal cost parameter
+optimal_cost_poly <- svm_model_poly$bestTune$C
+
+# Summarize key features of the fit
+print(svm_model_poly)
+
+# Compute estimated test error rate
+test_error_poly <- 1 - svm_model_poly$results$Accuracy
+estimated_test_error_rate_poly <- mean(test_error_poly)
+
+# Output results
+cat("Optimal Cost Parameter (Polynomial Kernel): ", optimal_cost_poly, "\n")
+cat("Estimated Test Error Rate (Polynomial Kernel): ", estimated_test_error_rate_poly, "\n")
+
+
+
+```
+
+```{r}
+# (c): Fit Support Vector Machine (SVM) with radial kernel and optimal parameters
+library(caret)
+library(e1071)
+svm_model_radial <- train(
+  x = X,
+  y = y,
+  method = "svmRadial",
+  trControl = cv,
+  tuneGrid = expand.grid(C = seq(0.1, 10, by = 0.1), sigma = seq(0.1, 2, by = 0.1)),
+  preProc = c("center", "scale"),
+  tuneLength = 10
+)
+
+# Optimal cost and gamma parameters
+optimal_cost_radial <- svm_model_radial$bestTune$C
+optimal_sigma <- svm_model_radial$bestTune$sigma
+
+# Step 5: Summarize key features of the fit
+summary(svm_model_radial$finalModel)
+
+# Step 6: Compute estimated test error rate
+test_error_radial <- 1 - svm_model_radial$results$Accuracy
+estimated_test_error_rate_radial <- mean(test_error_radial)
+
+# Output results
+cat("Optimal Cost Parameter (Radial Kernel):", optimal_cost_radial, "\n")
+cat("Optimal Sigma Parameter (Radial Kernel):", optimal_sigma, "\n")
+cat("Estimated Test Error Rate (Radial Kernel):", estimated_test_error_rate_radial, "\n")
+```
+```{r}
+# (d) Compare results from the above three methods and also from the method you
+# recommended for these data in Mini Projects 3 and 4. Which method would you 
+# recommend now?
+results <- resamples(list(SVC = svm_linear, SVM_Polynomial = svm_poly, SVM_Radial = svm_radial))
+summary(results)
+```
+
+Question 3
+```{r}
+
+Hitters <- as.data.frame(sapply(Hitters, as.numeric))
+
+# Extract predictors
+predictors <- Hitters[, -which(names(Hitters) == "Salary")]
+
+#(a) Standardizing variables before clustering
+scaled_predictor <- scale(predictors)
+
+#(b) Selecting a distance measure
+# Since we standardized the variables, Euclidean distance is good for clustering
+#(c) Hierarchical clustering with complete linkage and Euclidean distance
+hierarchical_cluster <- hclust(dist(scaled_predictor), method = "complete")
+
+# Cut dendrogram at a height resulting in two distinct clusters
+cut_dendo <- cutree(hierarchical_cluster, k = 2)
+
+# Summarize cluster-specific means of variables
+cluster_mean <- aggregate(predictors, by = list(cluster = cut_dendo), FUN = mean)
+print(cluster_mean)
+
+# Summarize mean salaries of players in the two clusters
+salary_mean <- tapply(Hitters$Salary, cut_dendo, mean)
+print(salary_mean)
+
+# dendrogram
+plot(hierarchical_cluster, hang = -1, cex = 0.6)
+
+# (d) K-means clustering with K = 2
+kmeans_cluster <- kmeans(scaled_predictor, centers = 2)
+
+kmeans_clustermean <- aggregate(predictors, by = list(cluster = kmeans_cluster$cluster), FUN = mean)
+print(kmeans_clustermean)
+
+kmeans_salarymean <- tapply(Hitters$Salary, kmeans_cluster$cluster, mean)
+print(kmeans_salarymean)
+```
